@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickTemp Mail</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --bg: #f3f4f6;
+            --card: #ffffff;
+            --text: #1f2937;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        h1 { margin-bottom: 10px; }
+
+        .email-box {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        input[type="text"] {
+            flex-grow: 1;
+            padding: 12px;
+            font-size: 1.1rem;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            background: #f9fafb;
+            color: #555;
+            font-weight: bold;
+            outline: none;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+
+        .btn-copy { background-color: var(--primary); color: white; }
+        .btn-refresh { background-color: #10b981; color: white; }
+        .btn-new { background-color: #ef4444; color: white; }
+        
+        button:hover { opacity: 0.9; }
+
+        .inbox {
+            background: var(--card);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .inbox-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #email-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .email-item {
+            padding: 20px;
+            border-bottom: 1px solid #e5e7eb;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .email-item:hover { background-color: #f9fafb; }
+        .email-item:last-child { border-bottom: none; }
+        
+        .sender { font-weight: bold; display: block; margin-bottom: 5px; }
+        .subject { color: #4b5563; }
+        .time { float: right; font-size: 0.85rem; color: #9ca3af; }
+
+        /* Modal for reading emails */
+        #message-view {
+            display: none;
+            background: var(--card);
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        #message-content {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+
+        .spinner {
+            display: none;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Temp Mail Generator</h1>
+        <p>Your temporary email address. Emails connect automatically.</p>
+    </header>
+
+    <!-- Email Control Panel -->
+    <div class="email-box">
+        <input type="text" id="email-address" readonly value="Generating...">
+        <button class="btn-copy" onclick="copyToClipboard()">Copy</button>
+        <button class="btn-new" onclick="generateNewEmail()">New Address</button>
+    </div>
+
+    <!-- Inbox Area -->
+    <div class="inbox">
+        <div class="inbox-header">
+            <span>Inbox</span>
+            <div class="spinner" id="loading-spinner"></div>
+            <span id="auto-refresh-text" style="font-size: 0.8rem; color: #888;">Auto-refreshing...</span>
+        </div>
+        <ul id="email-list">
+            <li class="email-item" style="text-align: center; color: #888;">Waiting for emails...</li>
+        </ul>
+    </div>
+
+    <!-- Email Reader View -->
+    <div id="message-view">
+        <button onclick="closeMessage()" style="background:#6b7280; color:white; padding: 8px 16px;">&larr; Back to Inbox</button>
+        <h2 id="msg-subject" style="margin-top: 20px;"></h2>
+        <p><strong>From:</strong> <span id="msg-from"></span></p>
+        <p><strong>Date:</strong> <span id="msg-date"></span></p>
+        <div id="message-content"></div>
+    </div>
+</div>
+
+<script>
+    let currentLogin = '';
+    let currentDomain = '';
+    let emailCheckInterval;
+
+    // 1. Generate a new email on load
+    document.addEventListener('DOMContentLoaded', generateNewEmail);
+
+    async function generateNewEmail() {
+        closeMessage();
+        document.getElementById('email-address').value = 'Generating...';
+        document.getElementById('email-list').innerHTML = '<li class="email-item" style="text-align: center;">Generating address...</li>';
+
+        // Using 1secmail API
+        try {
+            const response = await fetch('https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1');
+            const data = await response.json();
+            const fullEmail = data[0];
+            
+            [currentLogin, currentDomain] = fullEmail.split('@');
+            document.getElementById('email-address').value = fullEmail;
+            
+            // Clear old interval and start new check
+            if (emailCheckInterval) clearInterval(emailCheckInterval);
+            checkEmails();
+            emailCheckInterval = setInterval(checkEmails, 5000); // Check every 5 seconds
+
+        } catch (error) {
+            console.error('Error generating email:', error);
+            document.getElementById('email-address').value = 'Error. Try again.';
+        }
+    }
+
+    // 2. Check for new messages
+    async function checkEmails() {
+        if (!currentLogin || !currentDomain) return;
+        
+        document.getElementById('loading-spinner').style.display = 'block';
+
+        try {
+            const url = `https://www.1secmail.com/api/v1/?action=getMessages&login=${currentLogin}&domain=${currentDomain}`;
+            const response = await fetch(url);
+            const emails = await response.json();
+
+            const listElement = document.getElementById('email-list');
+            
+            if (emails.length === 0) {
+                listElement.innerHTML = '<li class="email-item" style="text-align: center; color: #888;">Mailbox is empty</li>';
+            } else {
+                listElement.innerHTML = '';
+                emails.forEach(email => {
+                    const li = document.createElement('li');
+                    li.className = 'email-item';
+                    li.innerHTML = `
+                        <span class="time">${email.date}</span>
+                        <span class="sender">${email.from}</span>
+                        <span class="subject">${email.subject}</span>
+                    `;
+                    li.onclick = () => loadMessage(email.id);
+                    listElement.appendChild(li);
+                });
+            }
+        } catch (error) {
+            console.error('Check failed', error);
+        } finally {
+            document.getElementById('loading-spinner').style.display = 'none';
+        }
+    }
+
+    // 3. Read a specific message
+    async function loadMessage(id) {
+        try {
+            const url = `https://www.1secmail.com/api/v1/?action=readMessage&login=${currentLogin}&domain=${currentDomain}&id=${id}`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            document.querySelector('.inbox').style.display = 'none';
+            document.getElementById('message-view').style.display = 'block';
+
+            document.getElementById('msg-subject').innerText = data.subject;
+            document.getElementById('msg-from').innerText = data.from;
+            document.getElementById('msg-date').innerText = data.date;
+            
+            // Prefer HTML body, fallback to text body
+            document.getElementById('message-content').innerHTML = data.htmlBody || data.textBody;
+
+        } catch (error) {
+            alert('Could not load message');
+        }
+    }
+
+    function closeMessage() {
+        document.getElementById('message-view').style.display = 'none';
+        document.querySelector('.inbox').style.display = 'block';
+    }
+
+    function copyToClipboard() {
+        const copyText = document.getElementById("email-address");
+        copyText.select();
+        copyText.setSelectionRange(0, 99999); 
+        navigator.clipboard.writeText(copyText.value);
+        alert("Copied: " + copyText.value);
+    }
+</script>
+
+</body>
+</html>
